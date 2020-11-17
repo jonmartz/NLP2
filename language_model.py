@@ -9,7 +9,7 @@ class Ngram_Language_Model:
         The class can be applied on both word level and caracter level.
     """
 
-    def __init__(self, n=3, chars=False, log_base=math.e):
+    def __init__(self, n=3, chars=False, log_base=math.e, stupid_backoff_alpha=0.3):
         """Initializing a language model object.
 
         NOTE:
@@ -25,6 +25,8 @@ class Ngram_Language_Model:
         self.chars = chars
         self.log_base = log_base
         self.n_grams_by_len = []
+        self.corpus_len = 0
+        self.stupid_backoff_alpha = stupid_backoff_alpha
 
     def join(self, tokens):
         """
@@ -64,6 +66,7 @@ class Ngram_Language_Model:
         """
         text = '< ' * (self.n - 1) + text.replace(' . ', ' .%s ' % (' <' * (self.n - 1))) + ' >'
         tokens = self.split(text)
+        self.corpus_len = len(tokens)
         self.n_grams_by_len = [{} for _ in range(self.n)]
         for i in range(len(tokens)):  # for index in tokens
             for n in range(self.n):  # for n-gram size from 1 to n:
@@ -157,7 +160,8 @@ class Ngram_Language_Model:
         sum = 0
         for i in range(len(tokens) - self.n + 1):
             n_gram = self.join(tokens[i: i + self.n])
-            sum += math.log(self.get_probability(n_gram, True), self.log_base)
+            prob = self.get_probability(n_gram, True)
+            sum += math.log(prob, self.log_base)
         return sum
 
     def get_probability(self, n_gram, smoothing=False):
@@ -170,7 +174,8 @@ class Ngram_Language_Model:
         :return: float from 0 to 1
         """
         if smoothing:
-            return self.smooth(n_gram)
+            # return self.smooth(n_gram)
+            return self.stupid_backoff(self.split(n_gram), self.stupid_backoff_alpha)
         else:
             history = self.join(self.split(n_gram)[:-1])
             histories = self.n_grams_by_len[-2]
@@ -195,6 +200,38 @@ class Ngram_Language_Model:
         n_gram_count = self.n_grams_by_len[-1].get(ngram, 0)
         vocab_len = len(self.n_grams_by_len[0])
         return (n_gram_count + 1) / (history_count + vocab_len)
+
+    def stupid_backoff(self, tokens, alpha):
+        if not tokens:  # word doesnt exist
+            return alpha / self.corpus_len
+        ngram = self.join(tokens)
+        ngrams = self.n_grams_by_len[len(tokens) - 1]
+        ngram_count = ngrams.get(ngram, 0)
+        if not ngram_count:
+            return alpha * self.stupid_backoff(tokens[1:], alpha)
+        if len(tokens) > 1:
+            history = self.join(tokens[:-1])
+            histories = self.n_grams_by_len[len(tokens) - 2]
+            history_count = histories[history]
+        else:
+            history_count = self.corpus_len
+        return ngram_count / history_count
+
+        # history_count = 0
+        # tokens = self.split(ngram)
+        # scale = 1
+        # while len(tokens) > 1:
+        #     history = self.join(tokens[:-1])
+        #     histories = self.n_grams_by_len[len(tokens) - 2]
+        #     if history in histories:
+        #         history_count = histories[history]
+        #         break
+        #     tokens = tokens[1:]
+        #     scale *= alpha
+        # ngram = self.join(tokens)
+        # n_gram_count = self.n_grams_by_len[len(tokens) - 1].get(ngram, 0)
+        # len_histories = len(self.n_grams_by_len[max(len(tokens) - 2, 0)])
+        # return scale * (n_gram_count + 1) / (history_count + len_histories)
 
 
 def normalize_text(text, lower=True, punctuations=',!?:;', chars_to_remove=r'\(\)\[\]\{\}\<\>\#*"-',

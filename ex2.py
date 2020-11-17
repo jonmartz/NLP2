@@ -18,7 +18,6 @@ class Spell_Checker:
         """
         self.error_tables = None
         self.vocabulary = None
-        self.total_words = None
         self.char_counts = None
         self.two_char_counts = None
         self.lm = lm
@@ -56,9 +55,9 @@ class Spell_Checker:
         """
         Process the language model obtained.
         """
-        self.vocabulary = self.lm.n_grams_by_len[0].keys()
+        self.vocabulary = set(self.lm.n_grams_by_len[0].keys())
         # for computing noisy channel prob:
-        self.total_words = sum(count for _, count in self.lm.n_grams_by_len[0].items())
+        # self.total_words = sum(count for _, count in self.lm.n_grams_by_len[0].items())
 
     def get_char_counts(self, text):
         """
@@ -130,7 +129,8 @@ class Spell_Checker:
             for candidate_word, channel_prob in candidates:
                 candidate_text = ' '.join(words[:word_idx] + [candidate_word] + words[word_idx + 1:])
                 prior_log_prob = self.evaluate(candidate_text)
-                candidate_log_prob = math.log(channel_prob, 10) + prior_log_prob
+                channel_log_prob = math.log(channel_prob, self.lm.log_base)
+                candidate_log_prob = channel_log_prob + prior_log_prob
                 if candidate_log_prob > best_log_prob:
                     best_text, best_log_prob = candidate_text, candidate_log_prob
         return best_text
@@ -185,27 +185,27 @@ class Spell_Checker:
                     if e not in existing_edits and e not in edits:
                         table = self.error_tables['insertion']
                         if i == 0:
-                            edits[e] = prior * table['#' + word[i]] / self.total_words  # count of '#' character
+                            edits[e] = prior * table['#' + word[i]] / self.lm.corpus_len  # count of '#' character
                         else:
-                            edits[e] = prior * table[e[i - 1] + word[i]] / self.char_counts[e[i - 1]]
+                            edits[e] = prior * table[e[i - 1] + word[i]] / self.char_counts.get(e[i - 1], 1)
                 if i < len(word) - 1:
                     e = word[:i] + word[i + 1] + word[i] + word[i + 2:]  # error was transposition
                     if e not in existing_edits and e not in edits:
                         table = self.error_tables['transposition']
-                        edits[e] = prior * table[e[i] + e[i + 1]] / self.two_char_counts[e[i] + e[i + 1]]
+                        edits[e] = prior * table[e[i] + e[i + 1]] / self.two_char_counts.get(e[i] + e[i + 1], 1)
                 for letter in letters:
                     e = word[:i] + letter + word[i:]  # error was deletion
                     if e not in existing_edits and e not in edits:
                         table = self.error_tables['deletion']
                         if i == 0:
-                            edits[e] = prior * table['#' + e[i]] / self.char_counts[e[i]]
+                            edits[e] = prior * table['#' + e[i]] / self.char_counts.get(e[i], 1)
                         else:
-                            edits[e] = prior * table[e[i - 1] + e[i]] / self.two_char_counts[e[i - 1] + e[i]]
+                            edits[e] = prior * table[e[i - 1] + e[i]] / self.two_char_counts.get(e[i - 1] + e[i], 1)
                     if i < len(word):
                         e = word[:i] + letter + word[i + 1:]  # error was substitution
                         if e not in existing_edits and e not in edits:
                             table = self.error_tables['substitution']
-                            edits[e] = prior * table[word[i] + e[i]] / self.char_counts[e[i]]
+                            edits[e] = prior * table[word[i] + e[i]] / self.char_counts.get(e[i], 1)
         return edits
 
 
